@@ -17,7 +17,7 @@ import argparse
 import time
 import yaml
 from multiprocessing import Array, Process, shared_memory, Queue, Manager, Event, Semaphore
-
+# 负责初始化图像处理、共享内存、摄像头传输，并设置手部和头部的姿态映射
 class VuerTeleop:
     def __init__(self, config_file_path):
         self.resolution = (720, 1280)
@@ -27,36 +27,49 @@ class VuerTeleop:
 
         self.img_shape = (self.resolution_cropped[0], 2 * self.resolution_cropped[1], 3)
         self.img_height, self.img_width = self.resolution_cropped[:2]
-
+        #self.shm：创建共享内存对象，用于在不同进程之间共享图像数据
+        #self.img_array：一个 NumPy 数组，基于共享内存创建，用来存储图像数据。这样多个进程可以访问同一个图像数据，避免不必要的拷贝
         self.shm = shared_memory.SharedMemory(create=True, size=np.prod(self.img_shape) * np.uint8().itemsize)
         self.img_array = np.ndarray((self.img_shape[0], self.img_shape[1], 3), dtype=np.uint8, buffer=self.shm.buf)
+        #image_queue 和 toggle_streaming：用于控制图像流和开关
         image_queue = Queue()
         toggle_streaming = Event()
+        #self.tv：OpenTeleVision 实例，用于处理图像流，接收共享内存图像名、队列和流控制事件
         self.tv = OpenTeleVision(self.resolution_cropped, self.shm.name, image_queue, toggle_streaming)
+        #self.processor：VuerPreprocessor 实例，用于处理图像流的预处理和分析
         self.processor = VuerPreprocessor()
-
+        
+        #设置重定位配置的默认 URDF 文件路径 五指手的URDF文件
         RetargetingConfig.set_default_urdf_dir('../assets')
         with Path(config_file_path).open('r') as f:
             cfg = yaml.safe_load(f)
+        #根据左手和右手的配置创建重定位对象，用于将手的姿势映射到机器人关节
         left_retargeting_config = RetargetingConfig.from_dict(cfg['left'])
         right_retargeting_config = RetargetingConfig.from_dict(cfg['right'])
         self.left_retargeting = left_retargeting_config.build()
         self.right_retargeting = right_retargeting_config.build()
-
+        
+    #step 方法处理图像数据并将其转换为头部和手部姿态信息
     def step(self):
+        '''
+        self.processor.process(self.tv)：通过预处理器从图像流中提取头部和手部的姿势矩阵。head_mat、left_wrist_mat 和 right_wrist_mat 分别表示头部和左右手腕的姿势，
+        left_hand_mat 和 right_hand_mat 表示左右手的姿势
+        '''
         head_mat, left_wrist_mat, right_wrist_mat, left_hand_mat, right_hand_mat = self.processor.process(self.tv)
-
+        #头部旋转矩阵
         head_rmat = head_mat[:3, :3]
-
+        #左手矩阵
         left_pose = np.concatenate([left_wrist_mat[:3, 3] + np.array([-0.6, 0, 1.6]),
                                     rotations.quaternion_from_matrix(left_wrist_mat[:3, :3])[[1, 2, 3, 0]]])
+        #右手矩阵
         right_pose = np.concatenate([right_wrist_mat[:3, 3] + np.array([-0.6, 0, 1.6]),
                                      rotations.quaternion_from_matrix(right_wrist_mat[:3, :3])[[1, 2, 3, 0]]])
+        # 手部关节角
         left_qpos = self.left_retargeting.retarget(left_hand_mat[tip_indices])[[4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
         right_qpos = self.right_retargeting.retarget(right_hand_mat[tip_indices])[[4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
 
         return head_rmat, left_pose, right_pose, left_qpos, right_qpos
-
+#Sim 类主要用于创建和控制模拟环境，它使用 NVIDIA Isaac Gym API 来设置和操作物理环境和视角
 class Sim:
     def __init__(self,
                  print_freq=False):
