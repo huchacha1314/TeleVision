@@ -6,18 +6,19 @@ from multiprocessing import Array, Process, shared_memory, Queue, Manager, Event
 import numpy as np
 import asyncio
 from webrtc.zed_server import *
-
+# 实现图像数据的传输和手部动作的捕捉
 class OpenTeleVision:
     def __init__(self, img_shape, shm_name, queue, toggle_streaming, stream_mode="image", cert_file="./cert.pem", key_file="./key.pem", ngrok=False):
         # self.app=Vuer()
+        #初始化图像数据、共享内存、流媒体模式等配置
         self.img_shape = (img_shape[0], 2*img_shape[1], 3)
         self.img_height, self.img_width = img_shape[:2]
-
+        #设置 Vuer 应用的服务器，支持 WebRTC 或图像流模式
         if ngrok:
             self.app = Vuer(host='0.0.0.0', queries=dict(grid=False), queue_len=3)
         else:
             self.app = Vuer(host='0.0.0.0', cert=cert_file, key=key_file, queries=dict(grid=False), queue_len=3)
-
+        #为手部数据和头部矩阵创建共享内存数组，用于多进程之间的通信
         self.app.add_handler("HAND_MOVE")(self.on_hand_move)
         self.app.add_handler("CAMERA_MOVE")(self.on_cam_move)
         if stream_mode == "image":
@@ -25,6 +26,7 @@ class OpenTeleVision:
             self.img_array = np.ndarray((self.img_shape[0], self.img_shape[1], 3), dtype=np.uint8, buffer=existing_shm.buf)
             self.app.spawn(start=False)(self.main_image)
         elif stream_mode == "webrtc":
+            #如果使用 WebRTC 模式，还会启动一个独立的 WebRTC 服务器进程
             self.app.spawn(start=False)(self.main_webrtc)
         else:
             raise ValueError("stream_mode must be either 'webrtc' or 'image'")
