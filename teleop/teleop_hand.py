@@ -51,6 +51,8 @@ class VuerTeleop:
         
     #step 方法处理图像数据并将其转换为头部和手部姿态信息
     def step(self):
+
+        ## 在这个地方判断是否捏住
         '''
         self.processor.process(self.tv)：通过预处理器从图像流中提取头部和手部的姿势矩阵。head_mat、left_wrist_mat 和 right_wrist_mat 分别表示头部和左右手腕的姿势，
         left_hand_mat 和 right_hand_mat 表示左右手的姿势
@@ -68,6 +70,17 @@ class VuerTeleop:
         left_qpos = self.left_retargeting.retarget(left_hand_mat[tip_indices])[[4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
         right_qpos = self.right_retargeting.retarget(right_hand_mat[tip_indices])[[4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
 
+        '''
+        if [4] [9] less than ... 
+            control 
+            set flag 
+        else
+            not control
+
+        return flag 
+        作为参数传入simulation的step（），如果true，读取位置，在simulation step 中false 设置为 pre——position true 更新position
+
+        '''
         return head_rmat, left_pose, right_pose, left_qpos, right_qpos
 #Sim 类主要用于创建和控制模拟环境，它使用 NVIDIA Isaac Gym API 来设置和操作物理环境和视角
 class Sim:
@@ -271,6 +284,9 @@ if __name__ == '__main__':
     try:
         while True:
             head_rmat, left_pose, right_pose, left_qpos, right_qpos = teleoperator.step()
+            '''
+            不可以在这里写判断语句，判断是否捏住，因为如果没有捏住就不会要simulation中产生渲染，画面就会静止
+            '''
             left_img, right_img = simulator.step(head_rmat, left_pose, right_pose, left_qpos, right_qpos)
             np.copyto(teleoperator.img_array, np.hstack((left_img, right_img)))
     except KeyboardInterrupt:
